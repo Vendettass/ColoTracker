@@ -92,17 +92,35 @@
 
       const handleFileUpload = async (e) => {
         const file = e.target.files[0];
-        if (!file || file.type !== 'application/pdf') {
-          alert('Veuillez sélectionner un fichier PDF');
+        if (!file) return;
+        
+        const validTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
+        if (!validTypes.includes(file.type)) {
+          alert('Veuillez sélectionner un fichier PDF, JPG ou PNG');
           return;
         }
         
         setIsLoading(true);
         try {
-          const cover = await extractCoverFromPDF(file);
-          setFormCover(cover);
+          if (file.type === 'application/pdf') {
+            const cover = await extractCoverFromPDF(file);
+            setFormCover(cover);
+          } else {
+            // Pour les images, on les convertit directement en base64
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              setFormCover(event.target.result);
+              setIsLoading(false);
+            };
+            reader.onerror = () => {
+              alert('Erreur lors de la lecture de l\'image');
+              setIsLoading(false);
+            };
+            reader.readAsDataURL(file);
+            return;
+          }
         } catch (error) {
-          console.error('Erreur extraction PDF:', error);
+          console.error('Erreur extraction:', error);
           alert('Erreur lors de l\'extraction de la couverture');
         }
         setIsLoading(false);
@@ -391,13 +409,13 @@
                                 </svg>
                               </div>
                               <p className="text-sm font-medium text-gray-600">Cliquez pour uploader</p>
-                              <p className="text-xs text-gray-400 mt-1">PDF uniquement</p>
+                              <p className="text-xs text-gray-400 mt-1">PDF, JPG ou PNG</p>
                             </>
                           )}
                           <input
                             ref={fileInputRef}
                             type="file"
-                            accept=".pdf"
+                            accept=".pdf,.jpg,.jpeg,.png"
                             onChange={handleFileUpload}
                             className="hidden"
                           />
