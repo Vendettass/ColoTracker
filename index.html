@@ -38,6 +38,12 @@
       const [isEditing, setIsEditing] = useState(false);
       const [editingBook, setEditingBook] = useState(null);
       const [randomPick, setRandomPick] = useState(null);
+      const [categories, setCategories] = useState([]);
+      const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+      const [newCategoryName, setNewCategoryName] = useState('');
+      const [formCategory, setFormCategory] = useState('');
+      const [randomCategory, setRandomCategory] = useState('');
+      const [isRandomModalOpen, setIsRandomModalOpen] = useState(false);
       
       const [formName, setFormName] = useState('');
       const [formPages, setFormPages] = useState('');
@@ -51,11 +57,19 @@
         if (saved) {
           setBooks(JSON.parse(saved));
         }
+        const savedCategories = localStorage.getItem('coloringCategories');
+        if (savedCategories) {
+          setCategories(JSON.parse(savedCategories));
+        }
       }, []);
 
       useEffect(() => {
         localStorage.setItem('coloringBooks', JSON.stringify(books));
       }, [books]);
+
+      useEffect(() => {
+        localStorage.setItem('coloringCategories', JSON.stringify(categories));
+      }, [categories]);
 
       const extractCoverFromPDF = async (file) => {
         return new Promise((resolve, reject) => {
@@ -129,7 +143,7 @@
       const handleSubmit = (e) => {
         e.preventDefault();
         if (!formName || !formPages || !formCover) {
-          alert('Veuillez remplir tous les champs et uploader un PDF');
+          alert('Veuillez remplir tous les champs et uploader un fichier');
           return;
         }
 
@@ -138,7 +152,7 @@
         if (isEditing && editingBook) {
           setBooks(books.map(book => 
             book.id === editingBook.id 
-              ? { ...book, name: formName, totalPages: pageCount, cover: formCover }
+              ? { ...book, name: formName, totalPages: pageCount, cover: formCover, category: formCategory }
               : book
           ));
         } else {
@@ -147,6 +161,7 @@
             name: formName,
             totalPages: pageCount,
             cover: formCover,
+            category: formCategory,
             completedPages: [],
             createdAt: new Date().toISOString()
           };
@@ -161,6 +176,7 @@
         setFormName('');
         setFormPages('');
         setFormCover(null);
+        setFormCategory('');
         setIsEditing(false);
         setEditingBook(null);
         if (fileInputRef.current) {
@@ -175,6 +191,7 @@
         setFormName(book.name);
         setFormPages(book.totalPages.toString());
         setFormCover(book.cover);
+        setFormCategory(book.category || '');
         setIsModalOpen(true);
       };
 
@@ -210,14 +227,23 @@
         return Math.round((book.completedPages.length / book.totalPages) * 100);
       };
 
-      const pickRandom = () => {
+      const pickRandom = (categoryFilter = '') => {
         // Filtrer les livres qui ont encore des pages non coloriées
-        const availableBooks = books.filter(book => 
+        let availableBooks = books.filter(book => 
           book.completedPages.length < book.totalPages
         );
         
+        // Filtrer par catégorie si spécifié
+        if (categoryFilter) {
+          availableBooks = availableBooks.filter(book => book.category === categoryFilter);
+        }
+        
         if (availableBooks.length === 0) {
-          alert('Félicitations ! Tous vos livres sont terminés ! 🎉');
+          if (categoryFilter) {
+            alert('Aucune page disponible dans cette catégorie !');
+          } else {
+            alert('Félicitations ! Tous vos livres sont terminés ! 🎉');
+          }
           return;
         }
         
@@ -236,46 +262,93 @@
         const randomPage = uncompletedPages[Math.floor(Math.random() * uncompletedPages.length)];
         
         setRandomPick({ book: randomBook, page: randomPage });
+        setIsRandomModalOpen(false);
+      };
+      
+      const addCategory = () => {
+        if (!newCategoryName.trim()) return;
+        if (categories.includes(newCategoryName.trim())) {
+          alert('Cette catégorie existe déjà !');
+          return;
+        }
+        setCategories([...categories, newCategoryName.trim()]);
+        setNewCategoryName('');
+      };
+      
+      const deleteCategory = (cat) => {
+        if (confirm(`Supprimer la catégorie "${cat}" ?`)) {
+          setCategories(categories.filter(c => c !== cat));
+        }
       };
 
       return (
         <div className="min-h-screen bg-gradient-to-br from-rose-50 via-white to-pink-50">
           {/* Header */}
-          <header className="bg-white/80 backdrop-blur-sm border-b border-rose-100 sticky top-0 z-40">
-            <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-gradient-to-br from-rose-400 to-pink-500 rounded-xl flex items-center justify-center shadow-lg shadow-rose-200">
-                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                  </svg>
-                </div>
-                <div>
-                  <h1 className="text-xl font-semibold text-gray-800 tracking-tight">Mes Coloriages</h1>
-                  <p className="text-xs text-rose-400">{books.length} livre{books.length > 1 ? 's' : ''}</p>
+          <header className="relative overflow-hidden bg-gradient-to-r from-rose-100 via-pink-50 to-rose-100 border-b border-rose-200">
+            {/* Éléments décoratifs */}
+            <div className="absolute inset-0 overflow-hidden">
+              <div className="absolute -top-10 -left-10 w-40 h-40 bg-rose-200/30 rounded-full blur-3xl"></div>
+              <div className="absolute -top-10 -right-10 w-60 h-60 bg-pink-200/30 rounded-full blur-3xl"></div>
+              <div className="absolute top-1/2 left-1/4 w-20 h-20 bg-rose-300/20 rounded-full blur-2xl"></div>
+            </div>
+            
+            <div className="relative max-w-7xl mx-auto px-6 py-6">
+              {/* Titre principal */}
+              <div className="text-center mb-6">
+                <div className="inline-flex items-center justify-center gap-3 mb-2">
+                  <div className="w-12 h-12 bg-gradient-to-br from-rose-400 to-pink-500 rounded-2xl flex items-center justify-center shadow-lg shadow-rose-300/50 rotate-3">
+                    <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h1 className="text-3xl font-bold bg-gradient-to-r from-rose-500 via-pink-500 to-rose-400 bg-clip-text text-transparent">
+                      Mes Coloriages
+                    </h1>
+                    <p className="text-sm text-rose-400 font-medium">
+                      {books.length === 0 ? 'Aucun livre pour le moment' : `${books.length} livre${books.length > 1 ? 's' : ''} • ${books.reduce((acc, b) => acc + b.completedPages.length, 0)} pages coloriées`}
+                    </p>
+                  </div>
                 </div>
               </div>
               
-              <button
-                onClick={pickRandom}
-                disabled={books.length === 0}
-                className="px-5 py-2.5 bg-white border-2 border-rose-300 text-rose-500 rounded-xl font-medium hover:bg-rose-50 hover:border-rose-400 transform hover:-translate-y-0.5 transition-all duration-200 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:transform-none"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-                </svg>
-                Aléatoire
-              </button>
-              
-              <button
-                onClick={() => { resetForm(); setIsModalOpen(true); }}
-                className="px-5 py-2.5 bg-gradient-to-r from-rose-400 to-pink-500 text-white rounded-xl font-medium shadow-lg shadow-rose-200 hover:shadow-xl hover:shadow-rose-300 transform hover:-translate-y-0.5 transition-all duration-200 flex items-center gap-2"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                Ajouter
-              </button>
+              {/* Boutons d'action */}
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                <button
+                  onClick={() => setIsCategoryModalOpen(true)}
+                  className="group px-5 py-2.5 bg-white/80 backdrop-blur-sm border-2 border-rose-200 text-rose-400 rounded-2xl font-medium hover:bg-white hover:border-rose-300 hover:text-rose-500 transition-all duration-300 flex items-center gap-2 shadow-sm hover:shadow-md"
+                >
+                  <svg className="w-5 h-5 group-hover:rotate-12 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                  </svg>
+                  Catégories
+                </button>
+                
+                <button
+                  onClick={() => setIsRandomModalOpen(true)}
+                  disabled={books.length === 0}
+                  className="group px-5 py-2.5 bg-white/80 backdrop-blur-sm border-2 border-rose-300 text-rose-500 rounded-2xl font-medium hover:bg-white hover:border-rose-400 transition-all duration-300 flex items-center gap-2 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <svg className="w-5 h-5 group-hover:rotate-180 transition-transform duration-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                  </svg>
+                  Aléatoire
+                </button>
+                
+                <button
+                  onClick={() => { resetForm(); setIsModalOpen(true); }}
+                  className="group px-6 py-2.5 bg-gradient-to-r from-rose-400 to-pink-500 text-white rounded-2xl font-semibold shadow-lg shadow-rose-300/50 hover:shadow-xl hover:shadow-rose-400/50 transform hover:-translate-y-0.5 transition-all duration-300 flex items-center gap-2"
+                >
+                  <svg className="w-5 h-5 group-hover:rotate-90 transition-transform duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+                  </svg>
+                  Ajouter un livre
+                </button>
+              </div>
             </div>
+            
+            {/* Bordure décorative en bas */}
+            <div className="absolute bottom-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-rose-300 to-transparent"></div>
           </header>
 
           {/* Grille des livres */}
@@ -346,6 +419,9 @@
                     
                     <div className="mt-3 px-1">
                       <h3 className="font-medium text-gray-800 truncate">{book.name}</h3>
+                      {book.category && (
+                        <p className="text-xs text-rose-400 truncate">{book.category}</p>
+                      )}
                       <p className="text-sm text-gray-400">{book.completedPages.length}/{book.totalPages} pages</p>
                     </div>
                   </div>
@@ -451,6 +527,23 @@
                       placeholder="Ex: 50"
                       className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-300 focus:border-transparent transition-all"
                     />
+                  </div>
+
+                  {/* Catégorie */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Catégorie
+                    </label>
+                    <select
+                      value={formCategory}
+                      onChange={(e) => setFormCategory(e.target.value)}
+                      className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-300 focus:border-transparent transition-all bg-white"
+                    >
+                      <option value="">Sans catégorie</option>
+                      {categories.map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
                   </div>
 
                   {/* Boutons */}
@@ -581,6 +674,9 @@
                       className="w-20 h-26 object-cover rounded-xl shadow-md mx-auto mb-3"
                     />
                     <p className="font-medium text-gray-700 mb-1">{randomPick.book.name}</p>
+                    {randomPick.book.category && (
+                      <p className="text-xs text-rose-400 mb-2">{randomPick.book.category}</p>
+                    )}
                     <p className="text-3xl font-bold text-rose-500">Page {randomPick.page}</p>
                   </div>
                   
@@ -602,6 +698,126 @@
                       Voir le livre
                     </button>
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Sélection Aléatoire */}
+          {isRandomModalOpen && (
+            <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden animate-in">
+                <div className="px-6 py-5 border-b border-rose-100 flex items-center justify-between">
+                  <h2 className="text-lg font-semibold text-gray-800">Page aléatoire</h2>
+                  <button
+                    onClick={() => { setIsRandomModalOpen(false); setRandomCategory(''); }}
+                    className="p-2 hover:bg-rose-50 rounded-xl transition-colors"
+                  >
+                    <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                
+                <div className="p-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Filtrer par catégorie (optionnel)
+                  </label>
+                  <select
+                    value={randomCategory}
+                    onChange={(e) => setRandomCategory(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-300 focus:border-transparent transition-all bg-white mb-6"
+                  >
+                    <option value="">Toutes les catégories</option>
+                    {categories.map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                  
+                  <button
+                    onClick={() => pickRandom(randomCategory)}
+                    className="w-full px-4 py-3 bg-gradient-to-r from-rose-400 to-pink-500 text-white rounded-xl font-medium shadow-lg shadow-rose-200 hover:shadow-xl transition-all flex items-center justify-center gap-2"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                    </svg>
+                    Tirer au sort !
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Gestion des Catégories */}
+          {isCategoryModalOpen && (
+            <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in">
+                <div className="px-6 py-5 border-b border-rose-100 flex items-center justify-between">
+                  <h2 className="text-lg font-semibold text-gray-800">Gérer les catégories</h2>
+                  <button
+                    onClick={() => setIsCategoryModalOpen(false)}
+                    className="p-2 hover:bg-rose-50 rounded-xl transition-colors"
+                  >
+                    <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+                
+                <div className="p-6">
+                  {/* Ajouter une catégorie */}
+                  <div className="flex gap-2 mb-6">
+                    <input
+                      type="text"
+                      value={newCategoryName}
+                      onChange={(e) => setNewCategoryName(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && addCategory()}
+                      placeholder="Nouvelle catégorie..."
+                      className="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-300 focus:border-transparent transition-all"
+                    />
+                    <button
+                      onClick={addCategory}
+                      className="px-4 py-3 bg-gradient-to-r from-rose-400 to-pink-500 text-white rounded-xl font-medium shadow-lg shadow-rose-200 hover:shadow-xl transition-all"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                      </svg>
+                    </button>
+                  </div>
+                  
+                  {/* Liste des catégories */}
+                  {categories.length === 0 ? (
+                    <div className="text-center py-8">
+                      <div className="w-16 h-16 bg-rose-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                        <svg className="w-8 h-8 text-rose-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                        </svg>
+                      </div>
+                      <p className="text-gray-500">Aucune catégorie</p>
+                      <p className="text-sm text-gray-400">Créez votre première catégorie !</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {categories.map(cat => (
+                        <div key={cat} className="flex items-center justify-between px-4 py-3 bg-rose-50 rounded-xl">
+                          <div className="flex items-center gap-3">
+                            <svg className="w-5 h-5 text-rose-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                            </svg>
+                            <span className="font-medium text-gray-700">{cat}</span>
+                          </div>
+                          <button
+                            onClick={() => deleteCategory(cat)}
+                            className="p-2 hover:bg-red-100 rounded-lg transition-colors"
+                          >
+                            <svg className="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
