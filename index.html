@@ -73,62 +73,109 @@
 
       const extractCoverFromPDF = async (file) => {
         return new Promise((resolve, reject) => {
-          // Timeout de 30 secondes
           const timeout = setTimeout(() => {
-            reject(new Error('Timeout: Le PDF prend trop de temps à charger'));
-          }, 30000);
+            reject(new Error('Timeout'));
+          }, 60000); // 60 secondes pour les gros fichiers
           
           const reader = new FileReader();
           reader.onload = async (e) => {
-            try {
-              const typedArray = new Uint8Array(e.target.result);
-              
-              // Charger le PDF avec gestion d'erreur
-              const loadingTask = pdfjsLib.getDocument({
+            const typedArray = new Uint8Array(e.target.result);
+            
+            // Configurations à essayer dans l'ordre
+            const configs = [
+              // Config 1: Standard
+              {
                 data: typedArray,
                 cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
                 cMapPacked: true,
-              });
-              
-              const pdf = await loadingTask.promise;
-              
-              if (pdf.numPages === 0) {
-                clearTimeout(timeout);
-                reject(new Error('Le PDF ne contient aucune page'));
-                return;
+              },
+              // Config 2: Sans polices personnalisées
+              {
+                data: typedArray,
+                cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+                cMapPacked: true,
+                disableFontFace: true,
+                useSystemFonts: true,
+              },
+              // Config 3: Mode minimal
+              {
+                data: typedArray,
+                disableFontFace: true,
+                disableRange: true,
+                disableStream: true,
+              },
+              // Config 4: Mode très basique
+              {
+                data: typedArray,
+                disableFontFace: true,
+                disableRange: true,
+                disableStream: true,
+                isEvalSupported: false,
+                useSystemFonts: true,
               }
-              
-              const page = await pdf.getPage(1);
-              
-              // Adapter le scale selon la taille de la page pour optimiser
-              const originalViewport = page.getViewport({ scale: 1 });
-              const maxDimension = 800;
-              const scale = Math.min(maxDimension / originalViewport.width, maxDimension / originalViewport.height, 1.5);
-              
-              const viewport = page.getViewport({ scale });
-              
-              const canvas = document.createElement('canvas');
-              const context = canvas.getContext('2d');
-              canvas.height = viewport.height;
-              canvas.width = viewport.width;
-              
-              await page.render({
-                canvasContext: context,
-                viewport: viewport
-              }).promise;
-              
-              // Compression adaptée à la taille
-              const quality = file.size > 10 * 1024 * 1024 ? 0.6 : 0.8;
-              const imageData = canvas.toDataURL('image/jpeg', quality);
-              
-              clearTimeout(timeout);
-              resolve(imageData);
-            } catch (error) {
-              clearTimeout(timeout);
-              console.error('Erreur PDF.js:', error);
-              reject(error);
+            ];
+            
+            let lastError = null;
+            
+            for (let i = 0; i < configs.length; i++) {
+              try {
+                console.log(`Tentative ${i + 1}/${configs.length}...`);
+                
+                const loadingTask = pdfjsLib.getDocument(configs[i]);
+                const pdf = await loadingTask.promise;
+                
+                if (pdf.numPages === 0) {
+                  throw new Error('PDF vide');
+                }
+                
+                const page = await pdf.getPage(1);
+                
+                // Calculer le scale optimal
+                const originalViewport = page.getViewport({ scale: 1 });
+                const maxDimension = 600; // Réduire pour plus de compatibilité
+                const scale = Math.min(
+                  maxDimension / originalViewport.width,
+                  maxDimension / originalViewport.height,
+                  1.5
+                );
+                
+                const viewport = page.getViewport({ scale });
+                
+                const canvas = document.createElement('canvas');
+                const context = canvas.getContext('2d');
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+                
+                // Fond blanc au cas où le PDF a de la transparence
+                context.fillStyle = 'white';
+                context.fillRect(0, 0, canvas.width, canvas.height);
+                
+                await page.render({
+                  canvasContext: context,
+                  viewport: viewport,
+                  intent: 'display' // Mode affichage plus tolérant
+                }).promise;
+                
+                const quality = file.size > 10 * 1024 * 1024 ? 0.5 : 0.7;
+                const imageData = canvas.toDataURL('image/jpeg', quality);
+                
+                clearTimeout(timeout);
+                console.log(`Succès avec la config ${i + 1}`);
+                resolve(imageData);
+                return;
+                
+              } catch (error) {
+                console.warn(`Config ${i + 1} échouée:`, error.message);
+                lastError = error;
+                // Continuer avec la config suivante
+              }
             }
+            
+            // Toutes les configs ont échoué
+            clearTimeout(timeout);
+            reject(lastError || new Error('Impossible de lire ce PDF'));
           };
+          
           reader.onerror = () => {
             clearTimeout(timeout);
             reject(new Error('Impossible de lire le fichier'));
@@ -147,20 +194,13 @@
           return;
         }
         
-        // Limite de taille : 50 MB
-        const maxSize = 50 * 1024 * 1024;
-        if (file.size > maxSize) {
-          alert(`Le fichier est trop volumineux (${(file.size / 1024 / 1024).toFixed(1)} MB).\nTaille maximum : 50 MB`);
-          return;
-        }
-        
         setIsLoading(true);
         try {
           if (file.type === 'application/pdf') {
+            console.log(`Chargement du PDF: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
             const cover = await extractCoverFromPDF(file);
             setFormCover(cover);
           } else {
-            // Pour les images, on les convertit directement en base64
             const reader = new FileReader();
             reader.onload = (event) => {
               setFormCover(event.target.result);
@@ -175,7 +215,7 @@
           }
         } catch (error) {
           console.error('Erreur extraction:', error);
-          alert(`Erreur lors de l'extraction de la couverture.\n\nCause possible :\n- PDF protégé ou chiffré\n- PDF corrompu\n- Format PDF non supporté\n\nEssayez avec une image JPG/PNG de la couverture.`);
+          alert(`Impossible d'extraire la couverture de ce PDF.\n\nSolution : Prenez une capture d'écran ou photo de la couverture et uploadez-la en JPG/PNG.`);
         }
         setIsLoading(false);
       };
@@ -516,7 +556,11 @@
                       ) : (
                         <label className="flex flex-col items-center justify-center py-8 cursor-pointer">
                           {isLoading ? (
-                            <div className="w-10 h-10 border-4 border-rose-200 border-t-rose-500 rounded-full animate-spin" />
+                            <div className="flex flex-col items-center">
+                              <div className="w-10 h-10 border-4 border-rose-200 border-t-rose-500 rounded-full animate-spin mb-2" />
+                              <p className="text-sm text-rose-500 font-medium">Extraction en cours...</p>
+                              <p className="text-xs text-gray-400">Cela peut prendre un moment</p>
+                            </div>
                           ) : (
                             <>
                               <div className="w-14 h-14 bg-rose-100 rounded-2xl flex items-center justify-center mb-3">
